@@ -2,13 +2,16 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const puppeteer = require('puppeteer');
+const path = require('path');
+// const fs = require('fs');
 
 const PORT = process.env.PORT || 3000;
+const PDF_DIR = path.join(__dirname, '..', 'pdfs');
 const app = express();
 
 // Accept larger payloads for full HTML pages
-app.use(bodyParser.json({ limit: '10mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 let browser; // reuse browser across requests
 
@@ -40,61 +43,90 @@ app.get('/', (req, res) => {
  * Responds: application/pdf (binary)
  */
 app.post('/pdf', async (req, res) => {
-  const { html, url, filename = 'output.pdf', options = {} } = req.body || {};
-
-  if (!html && !url) {
-    return res.status(400).json({ error: 'Please provide either "html" or "url" in request body.' });
+  console.log('Received PDF generation request');
+  
+  const { html, options = {} } = req.body || {};
+  
+  console.log('Request body length:', JSON.stringify(req.body).length);
+  
+  if (!html) {
+    return res.status(400).json({ error: 'Please provide "html" in request body.' });
   }
+
+  // Generate unique filename with timestamp
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const uniqueFilename = `output-${timestamp}.pdf`;
+  const outputPath = path.join(__dirname, '..', 'pdfs', uniqueFilename);
+
+  // Ensure pdfs directory exists
+  // await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
 
   let page;
   try {
     const b = await getBrowser();
     page = await b.newPage();
-
-    // set a default viewport (optional)
     await page.setViewport({ width: 1280, height: 800 });
 
-    if (url) {
-      // navigate to URL
-      const gotoOptions = { waitUntil: 'networkidle0', timeout: 30000 };
-      await page.goto(url, gotoOptions);
-    } else {
-      // set provided HTML
-      // base URL can be provided to resolve relative assets
-      const base = options.base || 'about:blank';
-      await page.setContent(html, { waitUntil: 'networkidle0' });
-      // give time for client-side JS if necessary (optional)
-      if (options.waitForMillis && typeof options.waitForMillis === 'number') {
-        await page.waitForTimeout(options.waitForMillis);
-      }
-    }
+    console.log('Setting HTML content...');
+    await page.setContent(html, { 
+      waitUntil: 'networkidle0',
+      timeout: 30000 
+    });
 
-    // PDF options with sensible defaults
-    const pdfOptions = {
-      format: options.format || 'A4',
-      printBackground: options.printBackground !== undefined ? options.printBackground : true,
-      margin: options.margin || { top: '15mm', right: '10mm', bottom: '15mm', left: '10mm' },
-      timeout: options.timeout || 30000,
-      ...options.pdf // if user passes a 'pdf' object override
+    // ✅ Optional debug screenshot
+    // await page.screenshot({ path: 'debug.png', fullPage: true });
+
+    // Parse and validate PDF options from the request
+    const pdfOptions = typeof options === 'string' ? JSON.parse(options).pdf : (options.pdf || {});
+    
+    // Merge with default options
+    const finalPdfOptions = {
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '1mm', right: '1mm', bottom: '1mm', left: '1mm' },
+      ...pdfOptions
     };
 
-    const pdfBuffer = await page.pdf(pdfOptions);
+    console.log('Generating PDF with options:', finalPdfOptions);
+    const pdfBuffer = await page.pdf(finalPdfOptions);
 
+    // Ensure the pdfs directory exists
+    // await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
+    
+    // Save PDF to disk
+    // await fs.promises.writeFile(outputPath, pdfBuffer);
+    // console.log(`PDF saved to: ${outputPath}`);
+
+    // Set proper headers for binary PDF data
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Length': pdfBuffer.length,
-      'Content-Disposition': `attachment; filename="${filename}"`
+      'Content-Disposition': `attachment; filename="${uniqueFilename}"`,
+      'Cache-Control': 'no-cache',
+      'Access-Control-Allow-Origin': '*'
     });
-    res.send(pdfBuffer);
+
+    // Send the PDF buffer directly as binary data
+    res.write(pdfBuffer);
+    res.end();
   } catch (err) {
     console.error('PDF generation error:', err);
-    res.status(500).json({ error: 'PDF generation failed', details: err.message });
+    res.status(500).json({ 
+      error: 'PDF generation failed',
+      details: err.message,
+      stack: err.stack 
+    });
   } finally {
     if (page) {
-      try { await page.close(); } catch (e) {}
+      try {
+        await page.close();
+      } catch (e) {
+        console.error('Error closing page:', e);
+      }
     }
   }
 });
+
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received — closing browser.');

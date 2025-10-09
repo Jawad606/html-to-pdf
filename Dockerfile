@@ -1,34 +1,38 @@
 # Dockerfile
-FROM node:18-slim
+FROM node:20-slim
 
 # Install dependencies for puppeteer/chromium
 RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
     ca-certificates \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
-    libc6 \
-    libc6-dev \
     libatk1.0-0 \
-    libatk-bridge2.0-0 \
     libcups2 \
+    libdbus-1-3 \
     libdrm2 \
-    libxkbcommon0 \
-    libx11-6 \
-    libx11-xcb1 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnss3 \
     libxcomposite1 \
     libxdamage1 \
-    libxext6 \
     libxfixes3 \
     libxrandr2 \
-    libgbm1 \
-    libpangocairo-1.0-0 \
-    libnss3 \
-    libnspr4 \
-    libxshmfence1 \
-    wget \
-    unzip \
-    gnupg \
+    libxss1 \
+    libxtst6 \
+    libx11-6 \
+    libx11-xcb1 \
+    xdg-utils \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Chrome itself
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
@@ -37,9 +41,9 @@ WORKDIR /usr/src/app
 # Copy package and install first to take advantage of Docker layer caching
 COPY package.json package-lock.json* ./
 
-# Allow Puppeteer to download Chromium during npm install
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false \
-    PUPPETEER_EXECUTABLE_PATH="" \
+# Tell Puppeteer to skip installing Chrome since we'll be using the installed package
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    CHROME_BIN=/usr/bin/google-chrome \
     NODE_ENV=production \
     TZ=UTC
 
@@ -51,12 +55,13 @@ COPY . .
 # Expose port
 EXPOSE 3000
 
-# Recommended: run as non-root for security
-# Create user and ownership
+# Create a non-root user for security
 RUN groupadd -r pptruser && useradd -r -g pptruser -G audio,video pptruser \
     && mkdir -p /home/pptruser/Downloads \
-    && chown -R pptruser:pptruser /usr/src/app
+    && chown -R pptruser:pptruser /usr/src/app \
+    && chown -R pptruser:pptruser /home/pptruser
 
+# Run everything after as non-root user
 USER pptruser
 
-CMD ["node", "index.js"]
+CMD ["node", "src/index.js"]
