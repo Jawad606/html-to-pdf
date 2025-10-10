@@ -140,6 +140,6 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`HTML→PDF service listening on port ${PORT}`);
 });
