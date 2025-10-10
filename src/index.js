@@ -28,7 +28,8 @@ async function getBrowser() {
       '--no-zygote',
       '--single-process'
     ],
-    headless: 'new' // recommended modern headless mode
+    headless: 'new', // recommended modern headless mode
+    executablePath: process.env.CHROME_BIN || '/usr/bin/google-chrome'
   });
   return browser;
 }
