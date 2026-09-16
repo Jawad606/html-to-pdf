@@ -24,13 +24,13 @@ async function getBrowser() {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process'
+      '--no-first-run'
     ],
     headless: 'new', // recommended modern headless mode
     executablePath: process.env.CHROME_BIN || '/usr/bin/google-chrome'
   });
+  // drop the cached handle when Chrome dies, so the next request relaunches
+  browser.on('disconnected', () => { browser = null; });
   return browser;
 }
 
